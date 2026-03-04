@@ -31,6 +31,9 @@ class CartItem(models.Model):
     )
     quantity = models.PositiveIntegerField(default=1)
 
+    class Meta:
+        unique_together = [['cart', 'product']]
+
     def __str__(self):
         return f"{self.product.name} ({self.quantity})"
 
