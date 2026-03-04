@@ -69,7 +69,8 @@ class ProductDetailAPIView(APIView):
     def get(self, request, slug):
         try:
             product = Product.objects.get(slug=slug, is_active=True)
-            serializer = ProductDetailSerializer(product)
+            serializer = ProductDetailSerializer(product, context={"request": request}
+)
             return Response(serializer.data, status=200)
 
         except Product.DoesNotExist:
