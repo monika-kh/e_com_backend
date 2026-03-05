@@ -6,6 +6,11 @@ class Category(models.Model):
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
     image = models.ImageField(upload_to="category/", null=True, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=("slug",)),
+        ]
+
     def __str__(self):
         return self.name
 
@@ -29,6 +34,12 @@ class Product(models.Model):
     stock = models.PositiveIntegerField()
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=("slug", "is_active")),
+            models.Index(fields=("category", "is_active", "created_at")),
+        ]
 
     def __str__(self):
         return self.name

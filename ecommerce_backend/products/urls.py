@@ -5,7 +5,7 @@ from .views import (
     CategoryWiseProductAPIView,
     ProductDetailAPIView,
     ProductFilterAPIView,
-    RelatedProductsAPIView
+    RelatedProductsAPIView,
 )
 
 urlpatterns = [
@@ -14,5 +14,5 @@ urlpatterns = [
     path("filter/", ProductFilterAPIView.as_view()),
     path("related/", RelatedProductsAPIView.as_view()),
     path("category/<slug:slug>/", CategoryWiseProductAPIView.as_view()),
-    path("<slug:slug>/", ProductDetailAPIView.as_view()),                     #product detail api
+    path("<slug:slug>/", ProductDetailAPIView.as_view()),  # product detail api
 ]
