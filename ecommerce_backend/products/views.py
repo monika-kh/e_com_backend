@@ -43,12 +43,14 @@ class ProductListAPIView(APIView):
     permission_classes = [AllowAny]
     def get(self, request):
         try:
-            products = (
-                Product.objects.filter(is_active=True)
-                .annotate(
-                    average_rating=Avg("reviews__rating"),
-                    ratings_count=Count("reviews", distinct=True),
-                )
+            # Only consider ratings where rating > 0 for aggregates
+            products = Product.objects.filter(is_active=True).annotate(
+                average_rating=Avg("reviews__rating", filter=Q(reviews__rating__gt=0)),
+                ratings_count=Count(
+                    "reviews",
+                    filter=Q(reviews__rating__gt=0),
+                    distinct=True,
+                ),
             )
             serializer = ProductListSerializer(products, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -61,15 +63,16 @@ class CategoryWiseProductAPIView(APIView):
     permission_classes = [AllowAny]
     def get(self, request, slug):
         try:
-            products = (
-                Product.objects.filter(
-                    category__slug=slug,
-                    is_active=True,
-                )
-                .annotate(
-                    average_rating=Avg("reviews__rating"),
-                    ratings_count=Count("reviews", distinct=True),
-                )
+            products = Product.objects.filter(
+                category__slug=slug,
+                is_active=True,
+            ).annotate(
+                average_rating=Avg("reviews__rating", filter=Q(reviews__rating__gt=0)),
+                ratings_count=Count(
+                    "reviews",
+                    filter=Q(reviews__rating__gt=0),
+                    distinct=True,
+                ),
             )
             serializer = ProductListSerializer(products, many=True)
             return Response(serializer.data, status=200)
@@ -92,9 +95,21 @@ class ProductDetailAPIView(APIView):
                 .select_related("category")
                 .prefetch_related("images")
                 .annotate(
-                    average_rating=Avg("reviews__rating"),
-                    total_ratings=Count("reviews", distinct=True),
-                    reviews_count=Count("reviews", distinct=True),
+                    average_rating=Avg(
+                        "reviews__rating",
+                        filter=Q(reviews__rating__gt=0),
+                    ),
+                    total_ratings=Count(
+                        "reviews",
+                        filter=Q(reviews__rating__gt=0),
+                        distinct=True,
+                    ),
+                    reviews_count=Count(
+                        "reviews",
+                        # Count only reviews with non-empty text
+                        filter=Q(reviews__comment__gt=""),
+                        distinct=True,
+                    ),
                 )
                 .get()
             )

@@ -1,16 +1,18 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.db.models import Q, Avg, Count
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+from django.db.models import Avg, Count
+from rest_framework.permissions import (
+    AllowAny,
+    IsAuthenticated,
+    IsAuthenticatedOrReadOnly,
+)
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
 from reviews.models import Review
 from .models import Product
-from .serializers import (
-    ReviewSerializer,
-)
+from .serializers import ReviewSerializer
 from products.pagination import ProductReviewPagination
 from .permissions import IsReviewOwnerOrReadOnly
 
@@ -28,7 +30,8 @@ class ProductRatingAPIView(APIView):
     def get(self, request, slug):
         product = get_object_or_404(Product, slug=slug, is_active=True)
 
-        aggregates = Review.objects.filter(product=product).aggregate(
+        # Only count ratings where rating > 0
+        aggregates = Review.objects.filter(product=product, rating__gt=0).aggregate(
             average_rating=Avg("rating"),
             total_ratings=Count("id"),
         )
@@ -74,28 +77,26 @@ class ProductRatingAPIView(APIView):
             )
 
         try:
-            review, created = Review.objects.get_or_create(
+            comment_raw = request.data.get("comment")
+            comment = comment_raw.strip() if isinstance(comment_raw, str) else ""
+
+            review, _ = Review.objects.get_or_create(
                 product=product,
                 user=request.user,
                 defaults={
-                    "rating": rating_value,
-                    "comment": request.data.get("comment", "").strip(),
+                    "rating": max(rating_value, 0),
+                    "comment": comment if comment else "",
                 },
             )
 
-            # rating = 0 → delete the rating (and review)
-            if rating_value == 0 and not created:
-                review.delete()
-            else:
-                review.rating = rating_value
-                comment = request.data.get("comment")
-                if comment is not None:
-                    review.comment = comment.strip()
-                review.save()
+            # Rating endpoint is responsible only for rating.
+            # rating = 0 → clear rating but keep review record (and any existing comment).
+            review.rating = max(rating_value, 0)
+            review.save(update_fields=["rating", "updated_at"])
 
             self._invalidate_product_cache(product.slug)
 
-            aggregates = Review.objects.filter(product=product).aggregate(
+            aggregates = Review.objects.filter(product=product, rating__gt=0).aggregate(
                 average_rating=Avg("rating"),
                 total_ratings=Count("id"),
             )
@@ -134,8 +135,10 @@ class ProductReviewListCreateAPIView(APIView):
     def get(self, request, slug):
         product = get_object_or_404(Product, slug=slug, is_active=True)
 
+        # Only reviews that actually have non-empty text should be listed.
         queryset = (
             Review.objects.filter(product=product)
+            .exclude(comment="")
             .select_related("user")
             .order_by("-created_at")
         )
@@ -162,30 +165,42 @@ class ProductReviewListCreateAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            rating_value = int(request.data.get("rating", 0))
-        except (TypeError, ValueError):
-            return Response(
-                {"error": "Rating must be an integer between 1 and 5."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        rating_raw = request.data.get("rating", None)
+        rating_value = None
 
-        if rating_value < 1 or rating_value > 5:
-            return Response(
-                {"error": "Rating must be between 1 and 5."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if rating_raw is not None:
+            try:
+                rating_value = int(rating_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": "Rating must be an integer between 1 and 5."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if rating_value < 1 or rating_value > 5:
+                return Response(
+                    {"error": "Rating must be between 1 and 5."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         try:
             review, created = Review.objects.get_or_create(
                 product=product,
                 user=request.user,
-                defaults={"rating": rating_value, "comment": comment},
+                defaults={
+                    "rating": rating_value if rating_value is not None else 0,
+                    "comment": comment,
+                },
             )
 
             if not created:
-                review.rating = rating_value
+                # Always update review text
                 review.comment = comment
+
+                # Only update rating if explicitly provided; otherwise keep existing rating
+                if rating_value is not None:
+                    review.rating = rating_value
+
                 review.save()
 
             serializer = ReviewSerializer(review, context={"request": request})
@@ -231,22 +246,27 @@ class ProductReviewDetailAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            rating_value = int(request.data.get("rating", review.rating))
-        except (TypeError, ValueError):
-            return Response(
-                {"error": "Rating must be an integer between 1 and 5."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        rating_raw = request.data.get("rating", None)
+        rating_value = None
 
-        if rating_value < 1 or rating_value > 5:
-            return Response(
-                {"error": "Rating must be between 1 and 5."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if rating_raw is not None:
+            try:
+                rating_value = int(rating_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": "Rating must be an integer between 0 and 5."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        review.rating = rating_value
+            if rating_value < 0 or rating_value > 5:
+                return Response(
+                    {"error": "Rating must be between 0 and 5."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         review.comment = comment
+        if rating_value is not None:
+            review.rating = rating_value
         review.save()
 
         serializer = ReviewSerializer(review, context={"request": request})
@@ -263,8 +283,13 @@ class ProductReviewDetailAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        product_slug = review.product.slug
-        review.delete()
-        ProductRatingAPIView._invalidate_product_cache(product_slug)
+        # Deleting a review should only remove the text, not the rating.
+        review.comment = ""
+        review.save(update_fields=["comment", "updated_at"])
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        ProductRatingAPIView._invalidate_product_cache(review.product.slug)
+
+        return Response(
+            {"message": "Review text deleted. Rating has been kept."},
+            status=status.HTTP_200_OK,
+        )

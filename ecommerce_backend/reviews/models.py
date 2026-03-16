@@ -7,8 +7,9 @@ class Review(models.Model):
     """
     Combined rating + review model.
 
-    - One review (and rating) per user per product
-    - Rating is an integer from 0–5
+    - One rating per user per product
+    - Review text is optional and can be managed independently
+    - Rating is an integer from 0–5 (0 = no rating)
     """
 
     user = models.ForeignKey(
@@ -21,7 +22,8 @@ class Review(models.Model):
         on_delete=models.CASCADE,
         related_name="reviews",
     )
-    rating = models.PositiveIntegerField()
+    # 0 means "no rating yet" so that review text can exist without a rating
+    rating = models.PositiveIntegerField(default=0)
     comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
