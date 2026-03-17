@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
-from .models import User
+from .models import User, Address
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -49,4 +49,64 @@ class LoginSerializer(serializers.Serializer):
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'role']
+        fields = ["id", "username", "email", "phone", "first_name", "last_name"]
+
+
+class AddressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Address
+        fields = [
+            "id",
+            "full_name",
+            "phone",
+            "address_line",
+            "city",
+            "state",
+            "pincode",
+            "is_default",
+        ]
+        read_only_fields = ["id"]
+
+    def validate_full_name(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("Full name is required.")
+        if len(v) < 2:
+            raise serializers.ValidationError("Full name must be at least 2 characters.")
+        return v
+
+    def validate_phone(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("Phone is required.")
+        digits = "".join(ch for ch in v if ch.isdigit())
+        if len(digits) != 10:
+            raise serializers.ValidationError("Phone must be exactly 10 digits.")
+        return digits
+
+    def validate_address_line(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("Address line is required.")
+        return v
+
+    def validate_city(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("City is required.")
+        return v
+
+    def validate_state(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("State is required.")
+        return v
+
+    def validate_pincode(self, value: str) -> str:
+        v = (value or "").strip()
+        if not v:
+            raise serializers.ValidationError("Pincode is required.")
+        digits = "".join(ch for ch in v if ch.isdigit())
+        if len(digits) < 5:
+            raise serializers.ValidationError("Pincode must contain at least 5 digits.")
+        return v
