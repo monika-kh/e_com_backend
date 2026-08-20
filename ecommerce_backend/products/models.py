@@ -47,4 +47,17 @@ class Product(models.Model):
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="images")
-    image = models.ImageField(upload_to="products/")
+    # Store product images under product-list/<product_id>/ prefix in the storage (S3)
+    def product_image_upload_to(instance, filename):
+        try:
+            product_id = instance.product.id
+        except Exception:
+            product_id = None
+        if product_id:
+            return f"product-list/{product_id}/{filename}"
+        return f"product-list/unknown/{filename}"
+
+    image = models.ImageField(upload_to=product_image_upload_to)
+
+    def __str__(self):
+        return f"{self.product.name}"

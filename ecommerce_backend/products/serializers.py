@@ -20,9 +20,19 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
     def get_image(self, obj):
         request = self.context.get("request")
-        if obj.image:
-            return request.build_absolute_uri(obj.image.url)
-        return None
+        if not obj.image:
+            return None
+
+        # If storage returns an absolute URL (e.g., S3), return it directly.
+        url = obj.image.url
+        if url.startswith("http"):
+            return url
+
+        # Otherwise, if we have a request, build an absolute URI; fallback to the raw URL.
+        if request:
+            return request.build_absolute_uri(url)
+
+        return url
 
 
 class ProductListSerializer(serializers.ModelSerializer):

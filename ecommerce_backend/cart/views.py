@@ -6,14 +6,18 @@ from .models import Cart, CartItem
 from .serializers import CartSerializer, CartItemSerializer, CartItemSimpleSerializer
 from products.models import Product
 from orders.models import Order, OrderItem
+from users.authentication import CookieJWTAuthentication
 
 
-def format_cart_item_response(cart_item):
+def format_cart_item_response(cart_item, request=None):
     """
     Format cart item response with complete product details
     """
     product = cart_item.product
-    images = [img.image.url for img in product.images.all()]
+    if request is not None:
+        images = [request.build_absolute_uri(img.image.url) for img in product.images.all()]
+    else:
+        images = [img.image.url for img in product.images.all()]
     
     return {
         "product_id": product.id,
@@ -33,13 +37,14 @@ class CartAPIView(APIView):
     GET: Get current user's cart with complete product details
     """
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieJWTAuthentication]
 
     def get(self, request):
         cart, created = Cart.objects.get_or_create(user=request.user)
         items = cart.items.select_related("product").prefetch_related("product__images").all()
         
         # Return cart items with complete product details
-        data = [format_cart_item_response(item) for item in items]
+        data = [format_cart_item_response(item, request) for item in items]
         
         return Response(
             {
@@ -137,7 +142,7 @@ class AddToCartAPIView(APIView):
         cart_item.save()
 
         return Response(
-            format_cart_item_response(cart_item),
+            format_cart_item_response(cart_item, request),
             status=status.HTTP_201_CREATED
         )
 
@@ -200,7 +205,7 @@ class UpdateCartAPIView(APIView):
         cart_item.save()
 
         return Response(
-            format_cart_item_response(cart_item),
+            format_cart_item_response(cart_item, request),
             status=status.HTTP_200_OK
         )
 

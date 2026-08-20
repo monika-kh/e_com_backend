@@ -4,11 +4,13 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.db.models import Sum
 
 from cart.models import Cart
 from products.models import Product
 from users.models import Address
 from orders.models import Order, OrderItem
+from payments.models import Payment
 
 
 class PlaceOrderAPIView(APIView):
@@ -66,7 +68,6 @@ class PlaceOrderAPIView(APIView):
 
                 order = Order.objects.create(
                     user=request.user,
-                    address=address,
                     shipping_address_text=shipping_snapshot,
                     total_amount=total_amount,
                     status="pending",
@@ -92,8 +93,10 @@ class PlaceOrderAPIView(APIView):
 
                 OrderItem.objects.bulk_create(order_items_payload)
 
-                # Clear the cart
-                cart.items.all().delete()
+                # IMPORTANT: Do NOT clear cart here for online payments.
+                # Cart should be cleared only when:
+                # - COD order is confirmed (if you add COD flow), or
+                # - Razorpay payment is successfully verified.
 
                 return Response(
                     {
@@ -117,15 +120,21 @@ class UserOrdersAPIView(APIView):
     def get(self, request):
         orders = (
             Order.objects.filter(user=request.user)
-            .select_related("address")
+            # Optimize only with valid relations. Order has FK to user and O2O to payment/shipping.
+            .select_related("user", "payment", "shipping")
+            .prefetch_related("items")
+            .annotate(total_quantity=Sum("items__quantity"))
             .order_by("-created_at")
         )
 
         data = [
             {
                 "order_id": order.id,
-                "status": order.status,
+                "delivery_status": order.status,
                 "total_amount": order.total_amount,
+                "total_quantity": int(order.total_quantity or 0),
+                "payment_method": getattr(order.payment, "payment_method", None),
+                "payment_status": getattr(order.payment, "status", "pending"),
                 "created_at": order.created_at,
             }
             for order in orders
@@ -136,29 +145,22 @@ class UserOrdersAPIView(APIView):
 
 class OrderDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
-
     def get(self, request, order_id):
         order = get_object_or_404(
-            Order.objects.select_related("address").prefetch_related("items__product"),
+            Order.objects.select_related("payment").prefetch_related("items__product"),
             id=order_id,
             user=request.user,
         )
-
         items = order.items.all()
-
-        return Response(
-            {
+        data = {
                 "order_id": order.id,
-                "status": order.status,
+                "delivery_status": order.status,
+                # "payment_method": getattr(order.payment, "payment_method", None),
+                # "payment_status": getattr(order.payment, "status", "pending"),
                 "total_amount": order.total_amount,
+                "total_quantity": sum(i.quantity for i in items),
                 "created_at": order.created_at,
                 "address": {
-                    "full_name": order.address.full_name if order.address else None,
-                    "address_line": order.address.address_line if order.address else None,
-                    "city": order.address.city if order.address else None,
-                    "state": order.address.state if order.address else None,
-                    "pincode": order.address.pincode if order.address else None,
-                    "phone": order.address.phone if order.address else None,
                     "snapshot": order.shipping_address_text,
                 },
                 "items": [
@@ -172,5 +174,8 @@ class OrderDetailAPIView(APIView):
                     for item in items
                 ],
             },
+        print(data)
+        return Response(
+            data,
             status=status.HTTP_200_OK,
         )
