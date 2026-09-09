@@ -1,5 +1,8 @@
-import os
+import hashlib
+import hmac
 from decimal import Decimal
+
+from django.conf import settings
 
 try:
     import razorpay
@@ -9,8 +12,8 @@ except Exception:  # pragma: no cover
 
 class RazorpayService:
     def __init__(self):
-        key_id = os.getenv("RAZORPAY_KEY_ID")
-        key_secret = os.getenv("RAZORPAY_KEY_SECRET")
+        key_id = getattr(settings, "RAZORPAY_KEY_ID", None)
+        key_secret = getattr(settings, "RAZORPAY_KEY_SECRET", None)
 
         if not key_id or not key_secret:
             raise ValueError("Razorpay keys are not configured.")
@@ -48,4 +51,15 @@ class RazorpayService:
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def verify_webhook_signature(*, body: bytes, signature: str) -> bool:
+        webhook_secret = getattr(settings, "RAZORPAY_WEBHOOK_SECRET", None)
+        if not webhook_secret or not signature:
+            return False
+
+        expected_signature = hmac.new(
+            webhook_secret.encode(), body, hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected_signature, signature)
 

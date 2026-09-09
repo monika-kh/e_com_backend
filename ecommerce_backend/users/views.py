@@ -112,6 +112,26 @@ class ProfileAPIView(APIView):
         serializer = ProfileSerializer(request.user)
         return Response(serializer.data)
 
+    def put(self, request):
+        try:
+            serializer = ProfileSerializer(
+                instance=request.user,
+                data=request.data,
+            )
+            if not serializer.is_valid():
+                return Response(
+                    serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 
 class LogoutAPIView(APIView):
     def post(self, request):
